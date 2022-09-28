@@ -11,8 +11,8 @@ build-docker:
 	docker build -t local/http-server .
 
 run-k8s-kind: build-docker
-	if [ ! "$$(kind get clusters |grep -x fuzzbuzz)" = "fuzzbuzz" ]; then kind create cluster --name fuzzbuzz --config kind.yaml; fi
-	kind load docker-image local/http-server:latest --name fuzzbuzz
+	if [ ! "$$(kind get clusters |grep -x fizzbuzz)" = "fizzbuzz" ]; then kind create cluster --name fizzbuzz --config kind.yaml; fi
+	kind load docker-image local/http-server:latest --name fizzbuzz
 	helm repo add ingress-nginx 'https://kubernetes.github.io/ingress-nginx'
 	helm repo add bitnami 'https://charts.bitnami.com/bitnami'
 	helm repo update
