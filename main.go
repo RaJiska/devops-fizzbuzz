@@ -128,12 +128,13 @@ func main() {
 
 	serverPort, _ := strconv.Atoi(getEnv("SERVER_PORT", "3000"))
 	healthCheckTimeout, _ := strconv.Atoi(getEnv("HEALTHCHECK_TIMEOUT", "1"))
+	healthcheckAddress := getEnv("HEALTHCHECK_ADDRESS", "http://127.0.0.1:3000")
 
 	// healthcheck function
 	go func() {
 		for {
 			// default to pinging ourselves
-			targetService := fmt.Sprintf("http://127.0.0.1:%d", serverPort)
+			targetService := fmt.Sprintf(healthcheckAddress)
 			log.Info(fmt.Sprintf("pinging %s...", targetService))
 			req, _ := http.NewRequest("GET", targetService, nil)
 			res, _ := http.DefaultClient.Do(req)
