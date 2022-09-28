@@ -11,11 +11,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 var globalDataStore = map[string]string{}
+var redisEnabled bool
+var redisAddress string
+var pool *redis.Pool
 
 func init() {
 	rand.NewSource(time.Now().Unix())
@@ -75,16 +79,32 @@ func handleSave(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyData, _ := ioutil.ReadAll(r.Body)
 	requestId := uuid.New().String()
-	globalDataStore[requestId] = string(bodyData)
+	if redisEnabled {
+		conn := pool.Get()
+		defer conn.Close()
+		conn.Do("SET", requestId, string(bodyData))
+	} else {
+		globalDataStore[requestId] = string(bodyData)
+	}
 	writeResult(w, http.StatusOK, requestId)
 }
 
 func handleLoad(w http.ResponseWriter, r *http.Request) {
 	// get the part after /load/, which should be the uuid returned from /save-me
 	dataId := strings.TrimPrefix(r.URL.Path, "/load/")
-	if globalDataInstance, ok := globalDataStore[dataId]; ok {
-		writeResult(w, http.StatusOK, globalDataInstance)
-		return
+	if redisEnabled {
+		conn := pool.Get()
+		defer conn.Close()
+		val, _ := redis.String(conn.Do("GET", dataId))
+		if len(val) != 0 {
+			writeResult(w, http.StatusOK, val)
+			return
+		}
+	} else {
+		if globalDataInstance, ok := globalDataStore[dataId]; ok {
+			writeResult(w, http.StatusOK, globalDataInstance)
+			return
+		}
 	}
 	writeResult(w, http.StatusNotFound, "not found")
 }
@@ -126,26 +146,43 @@ func main() {
 	handler.HandleFunc("/save", handleSave)
 	handler.HandleFunc("/load/", handleLoad)
 
+	// env vars
 	serverPort, _ := strconv.Atoi(getEnv("SERVER_PORT", "3000"))
 	healthCheckTimeout, _ := strconv.Atoi(getEnv("HEALTHCHECK_TIMEOUT", "1"))
 	healthcheckAddress := getEnv("HEALTHCHECK_ADDRESS", "http://127.0.0.1:3000")
+	healthCheckEnable := getEnv("HEALTHCHECK_ENABLE", "true")
+	redisEnabled = getEnv("REDIS_ENABLE", "false") == "true"
+	redisAddress = getEnv("REDIS_ADDRESS", "localhost:6379")
+
+	// redis connect
+	if redisEnabled {
+		pool = &redis.Pool{
+			MaxIdle:     10,
+			IdleTimeout: 240 * time.Second,
+			Dial: func() (redis.Conn, error) {
+				return redis.Dial("tcp", redisAddress)
+			},
+		}
+	}
 
 	// healthcheck function
-	go func() {
-		for {
-			// default to pinging ourselves
-			targetService := fmt.Sprintf(healthcheckAddress)
-			log.Info(fmt.Sprintf("pinging %s...", targetService))
-			req, _ := http.NewRequest("GET", targetService, nil)
-			res, _ := http.DefaultClient.Do(req)
-			if res.StatusCode != http.StatusOK {
-				log.Error(fmt.Sprintf("failed to complete healthcheck (status code: %v)", res.StatusCode))
+	if healthCheckEnable == "true" {
+		go func() {
+			for {
+				// default to pinging ourselves
+				targetService := fmt.Sprintf(healthcheckAddress)
+				log.Info(fmt.Sprintf("pinging %s...", targetService))
+				req, _ := http.NewRequest("GET", targetService, nil)
+				res, _ := http.DefaultClient.Do(req)
+				if res.StatusCode != http.StatusOK {
+					log.Error(fmt.Sprintf("failed to complete healthcheck (status code: %v)", res.StatusCode))
+				}
+				responseBody, _ := ioutil.ReadAll(res.Body)
+				log.Info(fmt.Sprintf("body data: %s", string(responseBody)))
+				<-time.After(time.Duration(healthCheckTimeout) * time.Second)
 			}
-			responseBody, _ := ioutil.ReadAll(res.Body)
-			log.Info(fmt.Sprintf("body data: %s", string(responseBody)))
-			<-time.After(time.Duration(healthCheckTimeout) * time.Second)
-		}
-	}()
+		}()
+	}
 
 	// start the server
 	if err := http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", serverPort), requestReceived(handler)); err != nil {
