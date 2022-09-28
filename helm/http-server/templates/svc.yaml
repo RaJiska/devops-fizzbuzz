@@ -1,0 +1,12 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "http-server.fullname" . }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: {{ include "http-server.fullname" . }}
+  ports:
+  - protocol: TCP
+    port: {{ .Values.service.port }}
+    targetPort: {{ .Values.app.serverPort }}

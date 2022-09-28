@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ include "http-server.fullname" . }}
+  name: {{ include "http-server.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "http-server.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "http-server.fullname" . }}
+    spec:
+      containers:
+      - image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        name: {{ include "http-server.fullname" . }}
+        ports:
+        - containerPort: {{ .Values.app.serverPort }}
+        env:
+        - name: SERVER_PORT
+          value: "{{ .Values.app.serverPort }}"
+        - name: HEALTHCHECK_ENABLE
+          value: "{{ .Values.app.healtcheckEnable }}"
+        - name: REDIS_ENABLE
+          value: "{{ .Values.app.redisEnable }}"
+        - name: REDIS_ADDRESS
+          value: "{{ .Values.app.redisAddress }}"
+        
+        livenessProbe:
+          httpGet:
+            scheme: HTTP
+            path: /
+            port: {{ .Values.app.serverPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 1
